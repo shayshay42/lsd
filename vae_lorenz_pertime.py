@@ -122,54 +122,27 @@ def decoder(hidden_dim, out_dim):
     )
 
 # Adjust the model and guide functions for handling time points individually
-def model(batch, hidden_dim=2, z_dim=1, out_dim=3):
-    batch = jnp.reshape(batch, (batch.shape[0] * batch.shape[1], -1))  # Reshape to process each time point individually
+def model(batch, hidden_dim=2, z_dim=1, output_dim=3):
+    # batch = jnp.reshape(batch, (batch.shape[0] * batch.shape[1], -1))  # Reshape to process each time point individually
     batch_dim = batch.shape[0]
-    decode = numpyro.module("decoder", decoder(hidden_dim, out_dim), (batch_dim, z_dim))
+    decode = numpyro.module("decoder", decoder(hidden_dim, output_dim), (batch_dim, z_dim))
     
     with numpyro.plate("data", batch_dim):
         z = numpyro.sample("z", dist.Normal(0, 1).expand((z_dim,)).to_event(1))
         predicted_state = decode(z)
         numpyro.sample("obs", dist.Normal(predicted_state, 1).to_event(1), obs=batch)
 
-def guide(batch, hidden_dim=2, z_dim=3):
-    batch = jnp.reshape(batch, (batch.shape[0] * batch.shape[1], -1))  # Reshape to process each time point individually
+def guide(batch, hidden_dim=2, z_dim=1, output_dim=3):
+    # batch = jnp.reshape(batch, (batch.shape[0] * batch.shape[1], -1))  # Reshape to process each time point individually
     batch_dim = batch.shape[0]
-    encode = numpyro.module("encoder", encoder(hidden_dim, z_dim), (batch_dim, z_dim))
+    encode = numpyro.module("encoder", encoder(hidden_dim, z_dim), (batch_dim, output_dim))
     
     z_loc, z_std = encode(batch)
     with numpyro.plate("data", batch_dim):
         numpyro.sample("z", dist.Normal(z_loc, jnp.exp(z_std)).to_event(1))
 
 #%%
-        
-def model(batch, hidden_dim=2, z_dim=1, out_dim=3):
-    print(f"Batch original dimensions: {batch.shape}")
-    batch = jnp.reshape(batch, (-1, 3))  # Adjusted for correct 3D reshaping
-    print(f"Batch reshaped dimensions for model: {batch.shape}")
-    batch_dim = batch.shape[0]
-    # Mockup for decoder initialization to simulate dimension handling
-    print(f"Model decoding from {z_dim} to {out_dim} dimensions using hidden_dim {hidden_dim}")
-
-def guide(batch, hidden_dim=2, z_dim=1):
-    print(f"Batch original dimensions: {batch.shape}")
-    batch = jnp.reshape(batch, (-1, 3))  # Adjusted for correct 3D reshaping
-    print(f"Batch reshaped dimensions for guide: {batch.shape}")
-    batch_dim = batch.shape[0]
-    # Mockup for encoder initialization to simulate dimension handling
-    print(f"Guide encoding from 3 to {z_dim} dimensions using hidden_dim {hidden_dim}")
-    # Assuming train_batches has been prepared as shown earlier
-
-# Use a single batch from the prepared data for testing
-test_batch = train_batches[0]
-
-# Test the model and guide with a single batch
-print("Testing model function:")
-model(test_batch, hidden_dim=2, z_dim=1, out_dim=3)
-
-print("\nTesting guide function:")
-guide(test_batch, hidden_dim=2, z_dim=1)
-
+# print(encoder(hidden_dim, z_dim))        
 
 # %%
 import jax.numpy as jnp
@@ -198,22 +171,58 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 encoder_nn = encoder(hidden_dim, z_dim)
 decoder_nn = decoder(hidden_dim, output_dim)
 adam = optim.Adam(learning_rate)
-svi = SVI(model, guide, adam, Trace_ELBO(), hidden_dim=hidden_dim, z_dim=z_dim)
+svi = SVI(model, guide, adam, Trace_ELBO(), hidden_dim=hidden_dim, z_dim=z_dim, output_dim=output_dim)
 
 # PRNG Keys
 rng_key = PRNGKey(0)
+#%%
+# Import additional required libraries
+# import time
+# from numpyro.diagnostics import hpdi
+# import numpyro
+# numpyro.set_platform("gpu")  # Use GPU if available: numpyro.set_platform("gpu")
+
+# # Split the RNG key for initializing the SVI state
+# rng_key, rng_key_init = random.split(rng_key)
+
+# # svi_result = svi.run(random.PRNGKey(0), 2, train_batches[0])
+
+# # Initialize the SVI state using a dummy batch
+# # Adjust the shape of the dummy batch (jnp.ones(...)) as necessary for your model's input
+# svi_state = svi.init(rng_key_init, jnp.ones((batch_size, input_dim)))
+
+# # Begin training loop
+# num_epochs = 200
+# for epoch in range(num_epochs):
+#     train_loss = 0.0
+#     # Iterate over the training data
+#     for i, batch in enumerate(train_batches):
+#         # Prepare the batch - ensure it's in the correct format
+#         batch = np.array(batch)
+        
+#         # Update the SVI state and compute loss for this batch
+#         svi_state, loss = svi.update(svi_state, batch)
+#         train_loss += loss
+    
+#     # Calculate average training loss for the epoch
+#     train_loss /= len(train_loader)
+    
+#     # Evaluation phase
+#     # Assuming you have an eval_test function or equivalent logic to calculate test loss
+#     # For simplicity, let's just print the train_loss
+#     print(f"Epoch {epoch+1}: Train loss = {train_loss}")
 
 # %%
 # Import additional required libraries
 import time
 from numpyro.diagnostics import hpdi
 import numpyro
-numpyro.set_platform("cpu")  # Use GPU if available: numpyro.set_platform("gpu")
+numpyro.set_platform("gpu")  # Use GPU if available: numpyro.set_platform("gpu")
 
 # Evaluation Function
 def eval_test(svi, svi_state, rng_key, test_loader):
     test_loss = 0.0
-    for i, (batch,) in enumerate(test_loader):
+    for i, batch in enumerate(test_loader):
         rng_key, _ = random.split(rng_key)
         batch = np.array(batch)  # Ensure batch is in the correct format
         loss = svi.evaluate(svi_state, batch)
@@ -223,7 +232,7 @@ def eval_test(svi, svi_state, rng_key, test_loader):
 
 def epoch_train(svi, rng_key, train_loader, svi_state):
     train_loss = 0.0
-    for i, (batch,) in enumerate(train_loader):
+    for i, batch in enumerate(train_loader):
         rng_key, _ = random.split(rng_key)
         batch = np.array(batch)  # Convert batch to the correct format if necessary
         svi_state, loss = svi.update(svi_state, batch)
@@ -249,7 +258,7 @@ def run_training(svi, rng_key, train_loader, test_loader, num_epochs=10):
         print(f"Epoch {epoch}: Train loss = {train_loss}, Test loss = {test_loss} ({time.time() - t_start:.2f}s)")
 
 # Execute the training
-run_training(svi, rng_key, train_loader, test_loader, num_epochs=num_epochs)
+run_training(svi, rng_key, train_batches, test_batches, num_epochs=200)
 
 
 # %%
