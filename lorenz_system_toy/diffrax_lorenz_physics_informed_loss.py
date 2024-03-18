@@ -76,7 +76,6 @@ def _get_data(ts, *, key):
     ys = sol.ys
     return ys
 
-
 def get_data(dataset_size, *, key):
     ts = jnp.linspace(0, 10, 100)
     key = jr.split(key, dataset_size)
@@ -177,7 +176,7 @@ model = NeuralODE(data_size, width_size, depth, key=model_key)
 # minimum.
 lr_strategy=(3e-3, 3e-4)
 steps_strategy=(1000, 5000)
-length_strategy=(0.1, 1)
+length_strategy=(1, 1)
 
 # @eqx.filter_value_and_grad
 # def grad_loss(model, ti, yi):
@@ -267,6 +266,6 @@ if plot:
     # plt.plot(ts, model_y[:, 2], c="crimson")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("neural_ode_batch128_depth4_lorenz_physics_5000iters.png")
+    plt.savefig("neural_ode_batch128_depth4_lorenz_physics_6000iters_nowarmup.png")
     plt.show()
 # %%
