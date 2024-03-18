@@ -84,7 +84,7 @@ def get_data(dataset_size, *, key):
     return ts, ys
 
 #%%
-dataset_size = 50
+dataset_size = 1000
 #plot the data
 ts, ys = get_data(dataset_size, key=jr.PRNGKey(1234))
 for y in ys:
@@ -154,10 +154,10 @@ _ys = dataloader((ys,), batch_size=32, key=loader_key)
 
 #%%
 # dataset_size=256,
-batch_size=64
+batch_size=128
 
 width_size=64
-depth=2
+depth=3
 seed=5678
 plot=True
 print_every=100
@@ -175,8 +175,8 @@ model = NeuralODE(data_size, width_size, depth, key=model_key)
 # Only thing to notice is that up until step 500 we train on only the first 10% of
 # each time series. This is a standard trick to avoid getting caught in a local
 # minimum.
-lr_strategy=(3e-3, 3e-3)
-steps_strategy=(500, 5000)
+lr_strategy=(3e-3, 3e-4)
+steps_strategy=(1000, 5000)
 length_strategy=(0.1, 1)
 
 # @eqx.filter_value_and_grad
@@ -267,6 +267,6 @@ if plot:
     # plt.plot(ts, model_y[:, 2], c="crimson")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("neural_ode_batch64_depth2_vdp_moreiters.png")
+    plt.savefig("neural_ode_batch128_depth4_lorenz_physics_5000iters.png")
     plt.show()
 # %%
