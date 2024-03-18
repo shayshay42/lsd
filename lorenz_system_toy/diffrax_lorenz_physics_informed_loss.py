@@ -87,14 +87,14 @@ def get_data(dataset_size, *, key):
 dataset_size = 1000
 #plot the data
 ts, ys = get_data(dataset_size, key=jr.PRNGKey(1234))
-for y in ys:
-    plt.plot(ts, y[:, 1])
-plt.show()
-#%%
-#plot the second dimension
-for y in ys:
-    plt.plot(ts, y[:, 1])
-plt.show()
+# for y in ys:
+#     plt.plot(ts, y[:, 1])
+# plt.show()
+# #%%
+# #plot the second dimension
+# for y in ys:
+#     plt.plot(ts, y[:, 1])
+# plt.show()
 ## %%  
 
 # import numpy as np
