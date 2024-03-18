@@ -14,8 +14,6 @@ transform = transforms.Compose([transforms.ToTensor()])
 import numpy as np
 import jax.numpy as jnp
 from scipy.integrate import solve_ivp
-import torch
-from torch.utils.data import DataLoader, TensorDataset
 
 # Lorenz system parameters
 sigma = 10.0
@@ -41,26 +39,15 @@ initial_conditions = np.random.rand(1000, 3) * 20 - 10  # Random initial conditi
 trajectories = np.array([solve_ivp(lorenz_system, t_span, ic, t_eval=t_eval).y for ic in initial_conditions])
 
 # Flatten and normalize trajectories
-trajectories = trajectories.reshape(-1, 3)  # Flatten trajectories
+# trajectories = trajectories.reshape(-1, 3)  # Flatten trajectories
 # Normalize per trajectory
 # trajectories = (trajectories - np.mean(trajectories, axis=1, keepdims=True)) / np.std(trajectories, axis=1, keepdims=True)
 
 # Create train and test dataloaders
-batch_size = 10000
+batch_size = trajectories.shape[-1]  # Use a batch size equal to the number of timepoints
 
 fraction = int(trajectories.shape[0] * 0.8)
 
-# First 80% of trajectories are used for training
-train_dataset = TensorDataset(torch.Tensor(trajectories[:fraction]))
-test_dataset = TensorDataset(torch.Tensor(trajectories[fraction:]))
-
-train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False)
-
-# Device configuration
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-trajectories.shape, device
 
 # Convert to JAX arrays for compatibility
 trajectories_jax = jnp.array(trajectories)
@@ -69,21 +56,21 @@ trajectories_jax = jnp.array(trajectories)
 split_idx = int(trajectories_jax.shape[0] * 0.8)
 
 # Split the dataset
-train_data = trajectories_jax[:split_idx]
-test_data = trajectories_jax[split_idx:]
+train_batches = train_data = jnp.transpose(trajectories_jax[:split_idx], axes=(0, 2, 1))
+test_batches = test_data = jnp.transpose(trajectories_jax[split_idx:], axes=(0, 2, 1))
 
-def batch_data(data, batch_size):
-    """Yield batches of data."""
-    num_batches = np.ceil(data.shape[0] / batch_size).astype(int)
-    for i in range(num_batches):
-        start = i * batch_size
-        end = start + batch_size
-        yield data[start:end]
+# def batch_data(data, batch_size):
+#     """Yield batches of data."""
+#     num_batches = np.ceil(data.shape[0] / batch_size).astype(int)
+#     for i in range(num_batches):
+#         start = i * batch_size
+#         end = start + batch_size
+#         yield data[start:end]
 
 # Prepare batches for the training data
-train_batches = list(batch_data(train_data, batch_size))
+# train_batches = list(batch_data(train_data, batch_size))
 # Prepare batches for the testing data
-test_batches = list(batch_data(test_data, batch_size))
+# test_batches = list(batch_data(test_data, batch_size))
 
 # Example usage
 print(f"Number of training batches: {len(train_batches)}")
@@ -109,7 +96,7 @@ def encoder(hidden_dim, z_dim):
         stax.FanOut(2),
         stax.parallel(
             Dense(z_dim),
-            stax.serial(Dense(z_dim), stax.Exp),
+            stax.serial(Dense(z_dim), Softplus),
         ),
     )
 
@@ -120,6 +107,8 @@ def decoder(hidden_dim, out_dim):
         Dense(out_dim),
         stax.Sigmoid,  # You may consider removing this if your data isn't in [0,1]
     )
+
+#uniform distribution
 
 # Adjust the model and guide functions for handling time points individually
 def model(batch, hidden_dim=2, z_dim=1, output_dim=3):
@@ -145,11 +134,9 @@ def guide(batch, hidden_dim=2, z_dim=1, output_dim=3):
 # print(encoder(hidden_dim, z_dim))        
 
 # %%
-import jax.numpy as jnp
 from jax import random, jit
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.optim import Adam
-from numpyro import optim
 from jax import lax
 import matplotlib.pyplot as plt
 import os
@@ -175,49 +162,45 @@ svi = SVI(model, guide, adam, Trace_ELBO(), hidden_dim=hidden_dim, z_dim=z_dim, 
 
 # PRNG Keys
 rng_key = PRNGKey(0)
+
+
 #%%
 # Import additional required libraries
-# import time
-# from numpyro.diagnostics import hpdi
-# import numpyro
-# numpyro.set_platform("gpu")  # Use GPU if available: numpyro.set_platform("gpu")
+import time
+from numpyro.diagnostics import hpdi
+import numpyro
+numpyro.set_platform("cpu")  # Use GPU if available: numpyro.set_platform("gpu")
 
-# # Split the RNG key for initializing the SVI state
-# rng_key, rng_key_init = random.split(rng_key)
+# Split the RNG key for initializing the SVI state
+rng_key, rng_key_init = random.split(rng_key)
 
-# # svi_result = svi.run(random.PRNGKey(0), 2, train_batches[0])
+# svi_result = svi.run(random.PRNGKey(0), 2, train_batches[0])
 
-# # Initialize the SVI state using a dummy batch
-# # Adjust the shape of the dummy batch (jnp.ones(...)) as necessary for your model's input
-# svi_state = svi.init(rng_key_init, jnp.ones((batch_size, input_dim)))
+# Initialize the SVI state using a dummy batch
+# Adjust the shape of the dummy batch (jnp.ones(...)) as necessary for your model's input
+svi_state = svi.init(rng_key_init, jnp.ones((batch_size, input_dim)))
 
-# # Begin training loop
-# num_epochs = 200
+# Begin training loop
+# num_epochs = 2
 # for epoch in range(num_epochs):
-#     train_loss = 0.0
-#     # Iterate over the training data
-#     for i, batch in enumerate(train_batches):
-#         # Prepare the batch - ensure it's in the correct format
-#         batch = np.array(batch)
-        
-#         # Update the SVI state and compute loss for this batch
-#         svi_state, loss = svi.update(svi_state, batch)
-#         train_loss += loss
-    
-#     # Calculate average training loss for the epoch
-#     train_loss /= len(train_loader)
-    
-#     # Evaluation phase
-#     # Assuming you have an eval_test function or equivalent logic to calculate test loss
-#     # For simplicity, let's just print the train_loss
-#     print(f"Epoch {epoch+1}: Train loss = {train_loss}")
+train_loss = 0.0
+# Iterate over the training data
+# for i, batch in enumerate(train_batches):
+# Prepare the batch - ensure it's in the correct format
+epoch = 0
+for i, batch in enumerate(train_batches):
+    batch = np.array(train_batches[0])
+
+    # Update the SVI state and compute loss for this batch
+    svi_state, loss = svi.update(svi_state, batch)
+    print(f"Epoch {epoch+1}, Batch {i+1}: Loss = {loss}")
 
 # %%
 # Import additional required libraries
 import time
 from numpyro.diagnostics import hpdi
 import numpyro
-numpyro.set_platform("gpu")  # Use GPU if available: numpyro.set_platform("gpu")
+numpyro.set_platform("cpu")  # Use GPU if available: numpyro.set_platform("gpu")
 
 # Evaluation Function
 def eval_test(svi, svi_state, rng_key, test_loader):
@@ -258,52 +241,13 @@ def run_training(svi, rng_key, train_loader, test_loader, num_epochs=10):
         print(f"Epoch {epoch}: Train loss = {train_loss}, Test loss = {test_loss} ({time.time() - t_start:.2f}s)")
 
 # Execute the training
-run_training(svi, rng_key, train_batches, test_batches, num_epochs=200)
+run_training(svi, rng_key, train_batches, test_batches, num_epochs=5)
 
+#%%
+params = svi.get_params(svi_state)
+batch = np.array(train_batches[0])  # Example: using the first batch from your training data
+z_mean, z_var = encoder_nn[1](
+    params["encoder$params"], batch)
 
+dist_pertime = dist.Normal(z_mean, jnp.exp(z_var / 2))
 # %%
-import matplotlib.pyplot as plt
-import numpy as np
-
-def reconstruct(svi, svi_state, batch):
-    """
-    Reconstructs the given batch of data using the trained VAE.
-    This function needs to extract the decoder part from the VAE model
-    and apply it to the latent variables sampled from the posterior.
-    """
-    # Extract the parameters for the decoder
-    params = svi.get_params(svi_state)
-    z_loc, z_std = encoder_nn(batch)  # You need to define how to get these from your model
-    z = dist.Normal(z_loc, z_std).sample()
-    reconstructed_batch = decoder_nn(z)
-    return reconstructed_batch
-
-def plot_lorenz_original_vs_reconstructed(svi, svi_state, test_loader):
-    fig, axs = plt.subplots(2, 5, figsize=(15, 6))
-    for i, (batch,) in enumerate(test_loader):
-        if i >= 5: break
-        original_data = np.array(batch)
-        reconstructed_data = reconstruct(svi, svi_state, original_data)
-        
-        # Assuming the data shape is (time_steps, 3) for each sample
-        t = np.arange(original_data.shape[1])
-        
-        # Original Data Plot
-        axs[0, i].plot(t, original_data[0, :, 0], 'r', label='X')
-        axs[0, i].plot(t, original_data[0, :, 1], 'g', label='Y')
-        axs[0, i].plot(t, original_data[0, :, 2], 'b', label='Z')
-        axs[0, i].set_title('Original')
-        if i == 0: axs[0, i].legend()
-        
-        # Reconstructed Data Plot
-        axs[1, i].plot(t, reconstructed_data[0, :, 0], 'r', label='X')
-        axs[1, i].plot(t, reconstructed_data[0, :, 1], 'g', label='Y')
-        axs[1, i].plot(t, reconstructed_data[0, :, 2], 'b', label='Z')
-        axs[1, i].set_title('Reconstructed')
-        if i == 0: axs[1, i].legend()
-
-    plt.tight_layout()
-    plt.show()
-
-# Generate and plot reconstructions from the test dataset
-plot_lorenz_original_vs_reconstructed(svi, svi_state, test_loader)
