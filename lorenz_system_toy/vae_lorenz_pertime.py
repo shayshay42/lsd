@@ -148,7 +148,7 @@ hidden_dim = 2
 z_dim = 1
 learning_rate = 1e-3
 batch_size = 10000
-num_epochs = 10
+num_epochs = 1
 RESULTS_DIR = "./vae_results"
 
 # Make sure results directory exists
@@ -251,3 +251,4 @@ z_mean, z_var = encoder_nn[1](
 
 dist_pertime = dist.Normal(z_mean, jnp.exp(z_var / 2))
 # %%
+a = dist_pertime.sample(jr.PRNGKey(1))

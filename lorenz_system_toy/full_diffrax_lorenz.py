@@ -227,6 +227,6 @@ if plot:
     # plt.plot(ts, model_y[:, 2], c="crimson")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("neural_ode_batch64_depth2_vdp_moreiters.png")
+    plt.savefig("neural_ode_batch64_depth2_lorenz_moreiters.png")
     plt.show()
 # %%
