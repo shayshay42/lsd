@@ -149,31 +149,54 @@ def decoder(hidden_dim, out_dim):
 #         predicted_state = decode(z)
 #         return numpyro.sample("obs", dist.Normal(predicted_state, 1).to_event(1), obs=batch)
 
-def model(batch, ts, hidden_dim=2, z_dim=1, output_dim=3, width_size=64, depth=2, key=jr.PRNGKey(0)):
+batch_size=128
+
+width_size=64
+depth=3
+seed = 1234
+key = jr.PRNGKey(seed)
+data_key, model_key, loader_key = jr.split(key, 3)
+
+# ts, ys = t_eval, train_batches
+dataset_size, length_size, data_size = ys.shape
+
+model = NeuralODE(1, width_size, depth, key=model_key)
+key, subkey = jax.random.split(jax.random.PRNGKey(0))
+x_dummy = jax.random.normal(subkey, (10,))  # Example input for shape inference
+params = eqx.filter(model, eqx.is_array)  # This extracts all parameters from the model
+params2 = eqx.get_params(model)  # This is equivalent to the above line???
+
+def model(batch, ts, hidden_dim=2, z_dim=1, output_dim=2, width_size=64, depth=2, key=jr.PRNGKey(0)):
     batch_dim = batch.shape[0]
     # Assuming the time dimension is the second axis
     series_length = batch.shape[1] 
 
     decode = numpyro.module("decoder", decoder(hidden_dim, output_dim), (batch_dim, z_dim))
 
-    neural_ode = numpyro.module("neuralode", NeuralODE(z_dim, width_size, depth, key=key))
+    flat_params = eqx.tree_flatten(params)[0]
+
+    # Use numpyro.module to register the neural network parameters within NumPyro.
+    neural_ode = numpyro.module("neuralode", flat_params, prior={})
+    # neural_ode = numpyro.module("neuralode", NeuralODE(z_dim, width_size, depth, key=key))
+    model_with_params = eqx.tree_unflatten(neural_ode, model)
 
     # Prior distribution for latent variables
     with numpyro.plate("data", batch_dim):
         z = numpyro.sample("z", dist.Normal(0, 1).expand((z_dim,)).to_event(1))
+        z_hat = model_with_params(ts, z[0,:])
 
         # Direct decoding branch
-        predicted_state = decode(z)
+        predicted_state = decode(z_hat)
         numpyro.sample("obs_direct", dist.Normal(predicted_state, 1).to_event(1), obs=batch)
 
         # Neural ODE branch
         #if batch_id == 0:
-        initial_condition = z[0,:]
-        ode_solution = neural_ode(ts, initial_condition)
-        decoded_ode_solution = jax.vmap(decode)(ode_solution)#.reshape(batch_dim, series_length, output_dim)
+        # initial_condition = z[0,:]
+        # ode_solution = neural_ode(ts, initial_condition)
+        # decoded_ode_solution = jax.vmap(decode)(ode_solution)#.reshape(batch_dim, series_length, output_dim)
 
         # Sample the observed data from the distribution parameterized by the decoded ODE solution
-        numpyro.sample("obs_ode", dist.Normal(decoded_ode_solution, 1).to_event(2), obs=batch)
+        # numpyro.sample("obs_ode", dist.Normal(decoded_ode_solution, 1).to_event(2), obs=batch)
 
 
 def guide(batch, ts, hidden_dim=2, z_dim=1, output_dim=3, width_size=64, depth=2, key=jr.PRNGKey(0)):
@@ -236,6 +259,7 @@ rng_key, rng_key_init = random.split(rng_key)
 # Adjust the shape of the dummy batch (jnp.ones(...)) as necessary for your model's input
 svi_state = svi.init(rng_key_init, jnp.ones((batch_size, input_dim)), ts)
 
+#%%
 # Begin training loop
 # num_epochs = 2
 # for epoch in range(num_epochs):
